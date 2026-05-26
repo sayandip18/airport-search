@@ -197,7 +197,7 @@ def analyze_csv(df: pd.DataFrame) -> dict:
 
     df["passenger_volume_rank"] = df.apply(_assign_volume_rank, axis=1)
 
-    cols = ["iata_code", "name", "municipality", "iso_country", "iso_region", "passenger_volume_rank"]
+    cols = ["iata_code", "icao_code", "name", "municipality", "iso_country", "iso_region", "passenger_volume_rank"]
     airports = df[cols].fillna("").to_dict("records")
 
     return {
