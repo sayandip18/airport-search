@@ -12,3 +12,8 @@ class IngestResultRead(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class EnrichmentResponse(BaseModel):
+    enriched_count: int
+    stats: dict
