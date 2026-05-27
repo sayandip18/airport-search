@@ -260,6 +260,14 @@ For each airport in the JSON array below, produce enriched data with these field
 - region_aliases: well-known alternate names for the region/state/province.
   ONLY include aliases you are certain exist. Return [] if in any doubt.
 
+IMPORTANT — Latin script only: every alias name MUST be written exclusively in
+Latin script (A–Z, accented Latin characters such as é ü ñ ø are allowed).
+Do NOT include native-script forms such as kanji (東京), kana (とうきょう),
+Arabic (القاهرة), Cyrillic (Москва), Devanagari, or any other non-Latin script.
+For languages that use non-Latin scripts, provide only the standard romanised /
+transliterated English form (e.g. "Tokyo", not "東京"; "Moscow", not "Москва";
+"Cairo", not "القاهرة").
+
 For metro_city and metro_code assign confidence: "high", "medium", or "low".
 For alias entries assign type (endonym | exonym | colloquial | alternate_spelling | historical)
 and confidence. Do NOT include aliases with confidence "low" — omit them entirely.

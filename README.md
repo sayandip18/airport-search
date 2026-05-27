@@ -31,7 +31,7 @@ API runs at http://localhost:8000. Tables are created automatically on first sta
 Run once after the backend has started (so the `airports` table exists):
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d myapp < apps/backend/migrations/001_add_search_indexes.sql
+docker compose exec -T postgres psql -U postgres -d myapp < apps/backend/migrations/001_setup_search.sql
 ```
 
 ### 4. Start the frontend

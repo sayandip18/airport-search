@@ -1,18 +1,28 @@
 -- ============================================================
--- Migration: 001_add_search_indexes.sql
+-- Migration: 001_setup_search.sql
 --
--- Adds full-text search (tsvector + GIN), typo-tolerant search
--- (pg_trgm + GIN), and accent-insensitive search (unaccent) to
--- the airports table.
+-- Merged from 001_add_search_indexes.sql + 002_add_aliases_text.sql
+--
+-- Sets up:
+--   • Extensions:      unaccent, pg_trgm
+--   • FTS config:      airports_simple  (accent-insensitive, no stemming)
+--   • Function:        immutable_unaccent(text)
+--   • Columns:         search_vector tsvector, aliases_text text
+--   • Trigger:         airports_search_vector_trigger
+--                      (maintains both columns on INSERT/UPDATE)
+--   • Indexes:
+--       airports_search_vector_gin      GIN on search_vector
+--       airports_trigram_gin            GIN trigram on scalar name columns
+--       airports_aliases_trigram_gin    GIN trigram on aliases_text
 --
 -- Apply:
---   psql $DATABASE_URL -f migrations/001_add_search_indexes.sql
+--   psql $DATABASE_URL -f migrations/001_setup_search.sql
 --
 -- NOTE: CREATE INDEX CONCURRENTLY cannot run inside a transaction
 -- block. Run this script directly via psql (not wrapped in BEGIN).
 -- If your migration runner always wraps in a transaction, replace
--- CONCURRENTLY with nothing — the lock will be held for longer but
--- the script will succeed.
+-- CONCURRENTLY with nothing — the lock will be held longer but the
+-- script will succeed.
 --
 -- Rollback: see bottom of file.
 -- ============================================================
@@ -60,22 +70,25 @@ $$;
 -- ----------------------------------------------------------------
 CREATE OR REPLACE FUNCTION immutable_unaccent(text)
 RETURNS text AS $$
-    SELECT unaccent($1)
+    SELECT public.unaccent($1)
 $$ LANGUAGE SQL IMMUTABLE PARALLEL SAFE;
 
 
 -- ----------------------------------------------------------------
--- 4. Add tsvector column
+-- 4. Add columns
 -- ----------------------------------------------------------------
 ALTER TABLE airports
     ADD COLUMN IF NOT EXISTS search_vector tsvector;
+
+ALTER TABLE airports
+    ADD COLUMN IF NOT EXISTS aliases_text text;
 
 
 -- ----------------------------------------------------------------
 -- 5. Trigger function: airports_search_vector_update
 --
--- Rebuilds search_vector before every INSERT or UPDATE using
--- weighted fields:
+-- Rebuilds search_vector and aliases_text before every INSERT or
+-- UPDATE using weighted fields:
 --
 --   A  →  iata_code, icao_code
 --          (exact identifiers — highest relevance rank)
@@ -83,13 +96,18 @@ ALTER TABLE airports
 --          (primary human-readable names)
 --   C  →  country_name, country_code, region_name, region_code
 --          (broader geography)
---   D  →  municipality_aliases, metro_aliases,
---          country_alias, region_alias
---          (JSONB arrays unpacked with jsonb_array_elements_text)
+--   D  →  alias names extracted via elem->>'name' from the four
+--          JSONB alias arrays
+--
+-- aliases_text is a flat concatenation of all alias names,
+-- used for trigram search so aliases participate in the same
+-- ILIKE / word_similarity queries as scalar columns.
 -- ----------------------------------------------------------------
 CREATE OR REPLACE FUNCTION airports_search_vector_update()
 RETURNS trigger AS $$
 BEGIN
+
+    -- ---- search_vector ------------------------------------------
     NEW.search_vector :=
 
         -- A: codes
@@ -118,31 +136,53 @@ BEGIN
         setweight(to_tsvector('airports_simple',
             COALESCE(NEW.region_code, '')), 'C') ||
 
-        -- D: alias JSONB arrays
+        -- D: alias names via elem->>'name' (not jsonb_array_elements_text,
+        --    which would stringify the whole JSON object)
         setweight(to_tsvector('airports_simple',
             COALESCE((
-                SELECT string_agg(v, ' ')
-                FROM jsonb_array_elements_text(NEW.municipality_aliases) v
+                SELECT string_agg(elem->>'name', ' ')
+                FROM jsonb_array_elements(NEW.municipality_aliases) elem
             ), '')
         ), 'D') ||
         setweight(to_tsvector('airports_simple',
             COALESCE((
-                SELECT string_agg(v, ' ')
-                FROM jsonb_array_elements_text(NEW.metro_aliases) v
+                SELECT string_agg(elem->>'name', ' ')
+                FROM jsonb_array_elements(NEW.metro_aliases) elem
             ), '')
         ), 'D') ||
         setweight(to_tsvector('airports_simple',
             COALESCE((
-                SELECT string_agg(v, ' ')
-                FROM jsonb_array_elements_text(NEW.country_alias) v
+                SELECT string_agg(elem->>'name', ' ')
+                FROM jsonb_array_elements(NEW.country_alias) elem
             ), '')
         ), 'D') ||
         setweight(to_tsvector('airports_simple',
             COALESCE((
-                SELECT string_agg(v, ' ')
-                FROM jsonb_array_elements_text(NEW.region_alias) v
+                SELECT string_agg(elem->>'name', ' ')
+                FROM jsonb_array_elements(NEW.region_alias) elem
             ), '')
         ), 'D');
+
+    -- ---- aliases_text -------------------------------------------
+    -- Flat concatenation of every alias name across all four arrays.
+    -- NULL when all alias arrays are empty / have no names.
+    NEW.aliases_text := (
+        SELECT string_agg(alias_name, ' ')
+        FROM (
+            SELECT elem->>'name' AS alias_name
+            FROM jsonb_array_elements(NEW.municipality_aliases) elem
+            UNION ALL
+            SELECT elem->>'name'
+            FROM jsonb_array_elements(NEW.metro_aliases) elem
+            UNION ALL
+            SELECT elem->>'name'
+            FROM jsonb_array_elements(NEW.country_alias) elem
+            UNION ALL
+            SELECT elem->>'name'
+            FROM jsonb_array_elements(NEW.region_alias) elem
+        ) alias_names
+        WHERE alias_name IS NOT NULL AND alias_name <> ''
+    );
 
     RETURN NEW;
 END;
@@ -162,9 +202,8 @@ CREATE TRIGGER airports_search_vector_trigger
 -- ----------------------------------------------------------------
 -- 7. Back-fill existing rows
 --
--- Fires the trigger for every row already in the table by updating
--- iata_code to itself (guaranteed NOT NULL). The trigger then
--- rebuilds search_vector for each row.
+-- Fires the trigger for every row already in the table.
+-- No-op if the table is empty (fresh install).
 -- ----------------------------------------------------------------
 UPDATE airports SET iata_code = iata_code;
 
@@ -189,9 +228,6 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS airports_search_vector_gin
 -- Used by similarity / ILIKE queries for typo tolerance:
 --   WHERE immutable_unaccent(name || ' ' || ...) ILIKE '%dusseldorf%'
 --   WHERE similarity(immutable_unaccent(name), 'heathrow') > 0.3
---
--- JSONB alias arrays are intentionally excluded — they cannot
--- participate in deterministic expression indexes.
 -- ----------------------------------------------------------------
 CREATE INDEX CONCURRENTLY IF NOT EXISTS airports_trigram_gin
     ON airports USING GIN (
@@ -206,14 +242,30 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS airports_trigram_gin
     );
 
 
+-- ----------------------------------------------------------------
+-- 10. GIN trigram index on aliases_text
+--
+-- Mirrors airports_trigram_gin but covers alias names.
+-- Used by:
+--   WHERE immutable_unaccent(COALESCE(aliases_text,'')) ILIKE '%q%'
+--   WHERE word_similarity(:q, immutable_unaccent(COALESCE(aliases_text,''))) > 0.4
+-- ----------------------------------------------------------------
+CREATE INDEX CONCURRENTLY IF NOT EXISTS airports_aliases_trigram_gin
+    ON airports USING GIN (
+        immutable_unaccent(COALESCE(aliases_text, '')) gin_trgm_ops
+    );
+
+
 -- ================================================================
 -- ROLLBACK (run manually if needed)
 -- ================================================================
+-- DROP INDEX CONCURRENTLY IF EXISTS airports_aliases_trigram_gin;
 -- DROP INDEX CONCURRENTLY IF EXISTS airports_trigram_gin;
 -- DROP INDEX CONCURRENTLY IF EXISTS airports_search_vector_gin;
 -- DROP TRIGGER IF EXISTS airports_search_vector_trigger ON airports;
 -- DROP FUNCTION IF EXISTS airports_search_vector_update();
 -- DROP FUNCTION IF EXISTS immutable_unaccent(text);
+-- ALTER TABLE airports DROP COLUMN IF EXISTS aliases_text;
 -- ALTER TABLE airports DROP COLUMN IF EXISTS search_vector;
 -- DROP TEXT SEARCH CONFIGURATION IF EXISTS airports_simple;
 -- -- Leave extensions in place (other objects may depend on them).
