@@ -6,12 +6,12 @@ from app.models.airport import Airport
 
 def _country_name(code: str) -> str | None:
     country = pycountry.countries.get(alpha_2=code)
-    return country.name if country else None
+    return getattr(country, "name", None)
 
 
 def _region_name(code: str) -> str | None:
     subdivision = pycountry.subdivisions.get(code=code)
-    return subdivision.name if subdivision else None
+    return getattr(subdivision, "name", None)
 
 
 async def save_airports(

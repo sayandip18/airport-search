@@ -2,7 +2,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import Integer, String
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -32,3 +32,9 @@ class Airport(Base):
     region_alias: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
 
     rank: Mapped[int] = mapped_column(Integer)
+
+    # Maintained automatically by airports_search_vector_trigger (defined in
+    # migrations/001_add_search_indexes.sql). Never write to this column
+    # directly — the trigger rebuilds it on every INSERT/UPDATE.
+    # GIN index: airports_search_vector_gin (defined in the same migration).
+    search_vector: Mapped[Any] = mapped_column(TSVECTOR, nullable=True, index=False)
