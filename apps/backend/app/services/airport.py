@@ -144,6 +144,7 @@ _TRIGRAM_CONCAT = """
         COALESCE(municipality_name, '') || ' ' ||
         COALESCE(metro_name, '')        || ' ' ||
         COALESCE(country_name, '')      || ' ' ||
+        COALESCE(region_name, '')       || ' ' ||
         COALESCE(iata_code, '')         || ' ' ||
         COALESCE(icao_code, '')
     )
@@ -252,7 +253,12 @@ async def search_airports(
                 f" OR word_similarity(:q, {_ALIASES_EXPR}) > 0.6)"
             ).bindparams(q=normalized)
         )
-        .order_by(Airport.rank.asc())
+        .order_by(
+            text(
+                f"GREATEST(word_similarity(:q, {_TRIGRAM_CONCAT}), word_similarity(:q, {_ALIASES_EXPR})) DESC"
+            ).bindparams(q=normalized),
+            Airport.rank.asc(),
+        )
         .limit(limit)
     )
 
