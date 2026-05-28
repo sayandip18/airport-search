@@ -26,13 +26,23 @@ uv run uvicorn main:app --reload
 
 API runs at http://localhost:8000. Tables are created automatically on first startup.
 
-### 3. Apply search indexes
+### 3. Run migrations
 
-Run once after the backend has started (so the `airports` table exists):
+Run once after the backend has started (so the `airports` table exists). Apply migrations in order:
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d myapp < apps/backend/migrations/001_setup_search.sql
+docker compose exec -T postgres psql -U postgres -d myapp < apps/backend/migrations/002_drop_tsvector.sql
 ```
+
+If connecting to an external database, use psql directly:
+
+```bash
+psql "postgresql://user:password@host:port/dbname" -f apps/backend/migrations/001_setup_search.sql
+psql "postgresql://user:password@host:port/dbname" -f apps/backend/migrations/002_drop_tsvector.sql
+```
+
+> **Note:** Both scripts use `CREATE/DROP INDEX CONCURRENTLY` and must be run outside a transaction block (i.e. directly via psql, not wrapped in `BEGIN`).
 
 ### 4. Start the frontend
 
