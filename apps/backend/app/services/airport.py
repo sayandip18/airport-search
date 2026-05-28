@@ -1,6 +1,8 @@
 import re
 
 import pycountry
+from indic_transliteration import sanscript
+from indic_transliteration.detect import detect as _detect_indic_script
 from pykakasi import kakasi
 from pypinyin import lazy_pinyin
 from sqlalchemy import select, text
@@ -20,10 +22,28 @@ _CJK_RE = re.compile(r"[一-鿿㐀-䶿豈-﫿]")
 # Presence of either is a 100 % reliable signal that the input is Japanese.
 _KANA_RE = re.compile(r"[぀-ゟ゠-ヿ]")
 
+# Indic scripts: Devanagari through Malayalam (covers Hindi, Bengali, Tamil,
+# Telugu, Kannada, Malayalam, Gujarati, Gurmukhi, Oriya).
+_INDIC_RE = re.compile(r"[ऀ-ൿ]")
+
 # Lazy-initialised kakasi instance.  The kakasi() constructor loads dictionary
 # data and takes ~100 ms; initialising it at import time would slow every cold
 # start even when no Japanese query is ever made.
 _kks: kakasi | None = None
+
+# Mapping from indic_transliteration.detect() output → sanscript scheme constant.
+# detect() returns lowercase names (e.g. 'devanagari', 'tamil').
+_INDIC_SCRIPT_MAP: dict[str, str] = {
+    "devanagari": sanscript.DEVANAGARI,
+    "bengali":    sanscript.BENGALI,
+    "gujarati":   sanscript.GUJARATI,
+    "gurmukhi":   sanscript.GURMUKHI,
+    "kannada":    sanscript.KANNADA,
+    "malayalam":  sanscript.MALAYALAM,
+    "oriya":      sanscript.ORIYA,
+    "tamil":      sanscript.TAMIL,
+    "telugu":     sanscript.TELUGU,
+}
 
 
 def _get_kks() -> kakasi:
@@ -60,6 +80,23 @@ def _romanise_zh(text: str) -> str:
     return "".join(parts)
 
 
+def _romanise_indic(text: str) -> str:
+    """Convert Indic-script text to ASCII via IAST then unidecode.
+
+    indic_transliteration auto-detects the source script (Devanagari, Bengali,
+    Tamil, Telugu, Kannada, Malayalam, Gujarati, Gurmukhi, Oriya) and outputs
+    IAST with diacritics (e.g. muṃbaī).  unidecode then strips the diacritics
+    to plain ASCII (mumbai) for trigram matching.
+    """
+    script = _detect_indic_script(text)
+    scheme = _INDIC_SCRIPT_MAP.get(script)
+    if not scheme:
+        return unidecode(text)
+    iast = sanscript.transliterate(text, scheme, sanscript.IAST)
+    return unidecode(iast)
+
+
+
 def _to_ascii(query: str, lang: str = "") -> str:
     """Transliterate a free-text search query to ASCII for trigram matching.
 
@@ -75,15 +112,20 @@ def _to_ascii(query: str, lang: str = "") -> str:
           → pykakasi (Hepburn romaji)
           e.g. 東京 → "tou kyou", 大阪 → "oosaka"
 
-    2. Pure Latin / other scripts (Arabic, Cyrillic, accented Latin, …)
-       → unidecode  (strips accents, converts to nearest ASCII)
-         e.g. São Paulo → "Sao Paulo", Москва → "Moskva"
+    2. Indic scripts (U+0900–U+0D7F) → indic_transliteration IAST → unidecode
+       e.g. मुंबई → "mumbai", চট্টগ্রাম → "cattagrama"
+
+    3. Everything else (Arabic, Cyrillic, accented Latin, …) → unidecode
+       e.g. São Paulo → "Sao Paulo", Москва → "Moskva"
     """
     if _KANA_RE.search(query) or _CJK_RE.search(query):
         primary = lang.split("-")[0].split(";")[0].lower()
         if primary == "zh":
             return _romanise_zh(query)
         return _romanise_ja(query)
+
+    if _INDIC_RE.search(query):
+        return _romanise_indic(query)
 
     return unidecode(query)
 
