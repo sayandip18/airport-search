@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -11,6 +11,7 @@ router = APIRouter()
 
 @router.get("/search", response_model=list[AirportRead])
 async def search_airports_endpoint(
+    request: Request,
     q: str = Query(
         ...,
         min_length=1,
@@ -39,4 +40,5 @@ async def search_airports_endpoint(
     * ``GET /api/airports/search?q=São+Paulo``     — accented text
     * ``GET /api/airports/search?q=London&limit=5``— custom result count
     """
-    return await search_airports(q, limit, db)
+    accept_language = request.headers.get("Accept-Language", "")
+    return await search_airports(q, limit, db, accept_language)

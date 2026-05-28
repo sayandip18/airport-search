@@ -53,3 +53,59 @@ The backend reads `apps/backend/.env`. The default values match the Docker Compo
 DATABASE_URL=postgresql+psycopg://postgres:password@localhost:5432/myapp
 OPENAI_API_KEY=           # required for the /ingest enrichment endpoint
 ```
+
+## Testing via Postman
+
+### Basic search
+
+`GET http://localhost:8000/api/airports/search?q=London`
+
+### Adding the Accept-Language header
+
+The backend uses the `Accept-Language` header to choose the right transliteration engine for CJK input. To set it in Postman:
+
+1. Open the request and go to the **Headers** tab.
+2. Add a new row:
+   - **Key**: `Accept-Language`
+   - **Value**: see the table below
+
+| Language              | Header value    | Example query | What it does          |
+| --------------------- | --------------- | ------------- | --------------------- |
+| Chinese (Simplified)  | `zh-CN`         | `上海`        | pypinyin → `shanghai` |
+| Chinese (Traditional) | `zh-TW`         | `台北`        | pypinyin → `taibei`   |
+| Japanese              | `ja`            | `東京`        | pykakasi → `tou kyou` |
+| No hint (default)     | _(omit header)_ | `東京`        | pykakasi fallback     |
+
+### Example requests
+
+**Chinese — search for Shanghai airports**
+
+```
+GET http://localhost:8000/api/airports/search?q=上海
+Headers:
+  Accept-Language: zh-CN
+```
+
+**Chinese — search for Beijing airports**
+
+```
+GET http://localhost:8000/api/airports/search?q=北京
+Headers:
+  Accept-Language: zh-CN
+```
+
+**Japanese — search for Tokyo airports**
+
+```
+GET http://localhost:8000/api/airports/search?q=東京
+Headers:
+  Accept-Language: ja
+```
+
+**Japanese — search for Osaka airports**
+
+```
+GET http://localhost:8000/api/airports/search?q=大阪
+Headers:
+  Accept-Language: ja
+```

@@ -64,6 +64,7 @@ dependencies = [
     { name = "pycountry" },
     { name = "pydantic-settings" },
     { name = "pykakasi" },
+    { name = "pypinyin" },
     { name = "python-multipart" },
     { name = "sqlalchemy" },
     { name = "unidecode" },
@@ -80,6 +81,7 @@ requires-dist = [
     { name = "pycountry", specifier = ">=24.6.1" },
     { name = "pydantic-settings", specifier = ">=2.14.1" },
     { name = "pykakasi", specifier = ">=2.2.1" },
+    { name = "pypinyin", specifier = ">=0.53.0" },
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "sqlalchemy", specifier = ">=2.0.50" },
     { name = "unidecode", specifier = ">=1.3.8" },
@@ -526,6 +528,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ad/32/2a8e213fd744459a03864af7cf4c6142ee061fc915757c8152d147b16015/pykakasi-2.3.0.tar.gz", hash = "sha256:fa052a8e63f59fb8d6569abbe719a8c9f9daf15ed27a67a56ab1705f0f67b0a1", size = 21752447, upload-time = "2024-06-24T04:57:31.233Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0f/e8/11644fe823e05c583b330e9fb81e3e8fc5d079036512a8300fc157be349d/pykakasi-2.3.0-py3-none-any.whl", hash = "sha256:26d21b090048ff45c6a4d8e962426b7951767216008ec30358e8a9d74af77f29", size = 2395003, upload-time = "2024-06-24T04:57:18.101Z" },
+]
+
+[[package]]
+name = "pypinyin"
+version = "0.55.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/a4/784cf98c09e0dc22776b0d7d8a4a5b761218bcae4608c2416ce1e167c8af/pypinyin-0.55.0.tar.gz", hash = "sha256:b5711b3a0c6f76e67408ec6b2e3c4987a3a806b7c528076e7c7b86fcf0eaa66b", size = 839836, upload-time = "2025-07-20T12:01:50.657Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/7b/4cabc76fcc21c3c7d5c671d8783984d30ac9d3bb387c4ba784fca3cdfa3a/pypinyin-0.55.0-py2.py3-none-any.whl", hash = "sha256:d53b1e8ad2cdb815fb2cb604ed3123372f5a28c6f447571244aca36fc62a286f", size = 840203, upload-time = "2025-07-20T12:01:48.535Z" },
 ]
 
 [[package]]

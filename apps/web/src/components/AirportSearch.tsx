@@ -38,7 +38,10 @@ export function AirportSearch() {
       try {
         const res = await fetch(
           `/api/airports/search?q=${encodeURIComponent(debouncedQuery)}&limit=10`,
-          { signal: controller.signal },
+          {
+            signal: controller.signal,
+            headers: { 'Accept-Language': navigator.language },
+          },
         )
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data: Airport[] = await res.json()

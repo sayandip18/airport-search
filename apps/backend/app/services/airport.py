@@ -2,6 +2,7 @@ import re
 
 import pycountry
 from pykakasi import kakasi
+from pypinyin import lazy_pinyin
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from unidecode import unidecode
@@ -43,28 +44,45 @@ def _romanise_ja(text: str) -> str:
     )
 
 
-def _to_ascii(query: str) -> str:
+def _romanise_zh(text: str) -> str:
+    """Convert Chinese characters to pinyin (no tones) for trigram matching.
+
+    Non-CJK characters (Latin, spaces, digits) are preserved as-is so that
+    mixed input like "Shanghai 上海" remains readable after conversion.
+    """
+    parts = []
+    for char in text:
+        if _CJK_RE.match(char):
+            py = lazy_pinyin(char)
+            parts.append(py[0] if py else char)
+        else:
+            parts.append(char)
+    return "".join(parts)
+
+
+def _to_ascii(query: str, lang: str = "") -> str:
     """Transliterate a free-text search query to ASCII for trigram matching.
 
     Decision tree
     -------------
     1. Contains kana (hiragana U+3040–309F / katakana U+30A0–30FF)
-       OR any CJK Unified Ideograph (kanji / hanzi)
-       → pykakasi (Hepburn romaji)
+       OR any CJK Unified Ideograph (kanji / hanzi):
 
-       Why pykakasi for all CJK and not a langdetect branch?
-       langdetect is unreliable on strings shorter than ~20 characters —
-       empirically, 2-char airport city kanji (東京, 大阪, 成田, 羽田, 関西)
-       are all mis-detected as Korean or Traditional Chinese.  pykakasi, by
-       contrast, produces exact or near-exact romaji for every major Japanese
-       airport city (toukyou, oosaka, narita, haneda, kansai) and acceptable
-       on-yomi readings for Chinese characters (shanhai ≈ shanghai).
+       a. Accept-Language primary tag is "zh" → pypinyin (pinyin, no tones)
+          e.g. 上海 → "shanghai", 北京 → "beijing"
+
+       b. Accept-Language primary tag is "ja", or no language hint
+          → pykakasi (Hepburn romaji)
+          e.g. 東京 → "tou kyou", 大阪 → "oosaka"
 
     2. Pure Latin / other scripts (Arabic, Cyrillic, accented Latin, …)
        → unidecode  (strips accents, converts to nearest ASCII)
          e.g. São Paulo → "Sao Paulo", Москва → "Moskva"
     """
     if _KANA_RE.search(query) or _CJK_RE.search(query):
+        primary = lang.split("-")[0].split(";")[0].lower()
+        if primary == "zh":
+            return _romanise_zh(query)
         return _romanise_ja(query)
 
     return unidecode(query)
@@ -152,6 +170,7 @@ async def search_airports(
     query: str,
     limit: int,
     db: AsyncSession,
+    accept_language: str = "",
 ) -> list[Airport]:
     """Search airports by any text (name, IATA/ICAO code, city, country, alias).
 
@@ -159,8 +178,7 @@ async def search_airports(
     ---------------
     Non-Latin input is converted to ASCII before querying:
       - Japanese kana          → pykakasi Hepburn romaji
-      - CJK (kanji / hanzi)    → langdetect to branch Japanese/other;
-                                  pykakasi for Japanese, unidecode otherwise
+      - CJK (kanji / hanzi)    → pykakasi for Japanese, unidecode otherwise
       - All other scripts      → unidecode (accents stripped, Cyrillic/Arabic
                                   converted to nearest Latin equivalent)
 
@@ -168,16 +186,16 @@ async def search_airports(
     -------------------------------------------------------
     1. Scalar fields (airports_trigram_gin index, migration 001):
          ILIKE '%q%'                 — exact substring  (LON, London, São Paulo)
-         word_similarity(q, …) > 0.4 — typo-tolerant    (Londn → London)
+         word_similarity(q, …) > 0.6 — typo-tolerant    (Londn → London)
 
     2. Alias names (airports_aliases_trigram_gin index, migration 002):
          Same two conditions against aliases_text, so aliases like
          "Heathrow", "Narita", "Nihon" participate in both substring
          and typo-tolerant matching.
 
-    Results are sorted by passenger_volume_rank DESC (higher = busier airport).
+    Results are sorted by passenger_volume_rank ASC (rank 1 = busiest/largest airport first).
     """
-    normalized = _to_ascii(query).strip().lower()
+    normalized = _to_ascii(query, accept_language).strip().lower()
 
     if not normalized:
         return []
@@ -187,12 +205,12 @@ async def search_airports(
         .where(
             text(
                 f"({_TRIGRAM_CONCAT} ILIKE '%' || :q || '%'"
-                f" OR word_similarity(:q, {_TRIGRAM_CONCAT}) > 0.4"
+                f" OR word_similarity(:q, {_TRIGRAM_CONCAT}) > 0.6"
                 f" OR {_ALIASES_EXPR} ILIKE '%' || :q || '%'"
-                f" OR word_similarity(:q, {_ALIASES_EXPR}) > 0.4)"
+                f" OR word_similarity(:q, {_ALIASES_EXPR}) > 0.6)"
             ).bindparams(q=normalized)
         )
-        .order_by(Airport.rank.desc())
+        .order_by(Airport.rank.asc())
         .limit(limit)
     )
 
