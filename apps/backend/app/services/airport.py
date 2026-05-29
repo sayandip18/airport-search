@@ -8,7 +8,6 @@ from pypinyin import lazy_pinyin
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from unidecode import unidecode
-
 from app.models.airport import Airport
 
 # ---------------------------------------------------------------------------
@@ -60,7 +59,7 @@ def _romanise_ja(text: str) -> str:
     "Tokyo 東京" is handled correctly.
     """
     return " ".join(
-        item["hepburn"] for item in _get_kks().convert(text) if item["hepburn"]
+        item["passport"] for item in _get_kks().convert(text) if item["passport"]
     )
 
 
@@ -125,8 +124,8 @@ def _to_ascii(query: str, lang: str = "") -> str:
         return _romanise_ja(query)
 
     if _INDIC_RE.search(query):
+        print(_romanise_indic(query))
         return _romanise_indic(query)
-
     return unidecode(query)
 
 
@@ -219,11 +218,7 @@ async def search_airports(
 
     Transliteration
     ---------------
-    Non-Latin input is converted to ASCII before querying:
-      - Japanese kana          → pykakasi Hepburn romaji
-      - CJK (kanji / hanzi)    → pykakasi for Japanese, unidecode otherwise
-      - All other scripts      → unidecode (accents stripped, Cyrillic/Arabic
-                                  converted to nearest Latin equivalent)
+    Non-Latin input is converted to ASCII before querying.
 
     Search strategy — trigram only, two index scans OR-ed:
     -------------------------------------------------------
